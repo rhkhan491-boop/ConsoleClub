@@ -1,0 +1,7 @@
+web.db
+web.db.bak
+web.db.incoming
+private_uploads/
+__pycache__/
+*.pyc
+.env
