@@ -39,7 +39,7 @@ DB_FILE = os.environ.get("DB_FILE", os.path.join(BASE_DIR, "web.db"))
 UPLOAD_FOLDER = os.path.join(BASE_DIR, "private_uploads")  # never served publicly
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-BOT_TOKEN = os.environ.get("9088208652:AAEELDYkhfWQwOcfyf6-PkquawXLrcobgTY", "").strip()
+BOT_TOKEN = os.environ.get("9088208652:AAEEodKYLyRjCdYgjeMThb_Xgo2WAzFmdzY", "").strip()
 ADMIN_IDS = {8887142614, 6034840006}
 UPI_ID = "q292825506@ybl"
 TG_BASE = "https://api.telegram.org"
