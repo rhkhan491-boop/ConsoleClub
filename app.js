@@ -1,5 +1,5 @@
-/* Console Club — app.js v4
-   Home / Rates / Arena / 8-step booking (PlayBox-style) with 50% UPI advance and live slot locking. */
+/* Console Club — app.js v4.2
+   Home / Rates / Arena / 8-step booking (PlayBox-style) with 50% UPI advance, live slot locking & Canvas PNG Receipt with CONSOLECLUB watermark. */
 (() => {
 "use strict";
 
@@ -31,7 +31,6 @@ const GEAR = [
 const FACTS = ["Pay 50% advance to lock slot", "Clock starts at booked time", "Extra time at hourly rate", "No refund once started"];
 
 /* ===== 2. DATA (complete poster rates, shown from the start) ===== */
-/* r = [label, mins, price1P, price2P?]  night rates are per hour */
 const PLANS = {
   ps5:    { n: "PS5 Gaming",     sub: "PS5 · 1 or 2 Players",            p: 1, r: [["30 Mins", 30, 70, 110], ["1 Hour", 60, 120, 200], ["2 Hours", 120, 200, 350], ["3 Hours", 180, 300, 530]], night: [200, 300] },
   ps4:    { n: "PS4 Gaming",     sub: "PS4 · 1 or 2 Players",            p: 1, r: [["30 Mins", 30, 50, 80], ["1 Hour", 60, 80, 130], ["2 Hours", 120, 140, 220], ["3 Hours", 180, 200, 320]], night: [120, 200] },
@@ -42,7 +41,6 @@ const PLANS = {
 };
 const STATIONS = ["ps5", "ps4", "wheel", "vr", "vrwheel", "gta6"];
 
-/* Price for a station, duration (mins), players, and start time "HH:MM" */
 const sessionPrice = (key, mins, players, startTime) => {
   const P = PLANS[key] || PLANS.ps5;
   const eff = P.p ? players : 1;
@@ -60,13 +58,11 @@ const inr = n => "₹" + n;
 /* ===== 3. PURE LOGIC ===== */
 const IST = "Asia/Kolkata";
 const IST_PARTS = new Intl.DateTimeFormat("en-US", { timeZone: IST, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
-/* Reads the real wall-clock time in India, independent of the visitor's device timezone */
 const istNow = () => {
   const o = {};
   for (const p of IST_PARTS.formatToParts(new Date())) o[p.type] = p.value;
   return { ymd: `${o.year}-${o.month}-${o.day}`, mins: ((+o.hour) % 24) * 60 + (+o.minute) };
 };
-const todayIST = () => istNow().ymd;
 const addDays = (ymd, n) => new Date(Date.parse(ymd + "T00:00:00Z") + n * 864e5).toISOString().slice(0, 10);
 const dayLabel = s => new Date(s + "T00:00:00Z").toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" });
 const cleanName = s => String(s || "").replace(/\s+/g, " ").trim();
@@ -76,7 +72,6 @@ const normPhone = raw => {
   else if (d.length === 11 && d[0] === "0") d = d.slice(1);
   return /^[6-9]\d{9}$/.test(d) ? d : "";
 };
-const durMin = l => { const n = parseInt(l, 10) || 0; return /hour/i.test(l) ? n * 60 : n; };
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const t12 = t => {
   if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(t)) return t || "—";
@@ -87,7 +82,6 @@ const timeToMins = t => {
   const [h, m] = String(t || "00:00").split(":").map(Number);
   return (h * 60) + (m || 0);
 };
-/* Night Special runs 00:00 – 07:00. Slots 00:00–09:59 use night hourly rates. */
 const isNightTime = t => timeToMins(t) < 600;
 const statusAt = h => h >= 10 ? ["day", "Day Time · 10 AM – 12 AM"] : h < 7 ? ["night", "Night Special · 12 AM – 7 AM"] : ["", "Closed · opens 10 AM"];
 
@@ -125,7 +119,196 @@ const copy = async (text, msg) => {
   toast(msg);
 };
 
-/* Reveal helper: content is never left invisible, even if the observer fails */
+/* Universal rounded rectangle helper (works on all browsers) */
+const drawRoundRect = (ctx, x, y, w, h, r) => {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+};
+
+/* ===== RECEIPT PNG GENERATOR (BIG CONSOLECLUB WATERMARK) ===== */
+const downloadReceiptPNG = (r, durLabelFn) => {
+  try {
+    const W = 900, H = 1220;
+    const c = document.createElement("canvas");
+    c.width = W; c.height = H;
+    const ctx = c.getContext("2d");
+
+    // 1. Dark luxury background
+    const bg = ctx.createLinearGradient(0, 0, W, H);
+    bg.addColorStop(0, "#140e07");
+    bg.addColorStop(0.5, "#090704");
+    bg.addColorStop(1, "#160f06");
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, W, H);
+
+    // 2. Gold outer border
+    ctx.strokeStyle = "#FFB320";
+    ctx.lineWidth = 4;
+    ctx.strokeRect(26, 26, W - 52, H - 52);
+    ctx.strokeStyle = "rgba(255,179,32,0.22)";
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(40, 40, W - 80, H - 80);
+
+    // 3. BIG diagonal CONSOLECLUB watermark across the receipt
+    ctx.save();
+    ctx.translate(W / 2, H / 2);
+    ctx.rotate(-Math.PI / 5.5);
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.font = "900 128px Impact, 'Arial Black', sans-serif";
+    ctx.fillStyle = "rgba(255, 179, 32, 0.085)";
+    ctx.fillText("CONSOLECLUB", 0, -180);
+    ctx.fillText("CONSOLECLUB", 0, 40);
+    ctx.fillText("CONSOLECLUB", 0, 260);
+    ctx.restore();
+
+    // 4. Header block
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#FFB320";
+    ctx.font = "700 22px Arial, sans-serif";
+    ctx.fillText("OFFICIAL BOOKING PASS", W / 2, 102);
+
+    ctx.fillStyle = "#F4ECDD";
+    ctx.font = "900 68px Impact, 'Arial Black', sans-serif";
+    ctx.fillText("CONSOLE CLUB", W / 2, 172);
+
+    ctx.fillStyle = "#B8AA91";
+    ctx.font = "600 20px Arial, sans-serif";
+    ctx.fillText("THE GAMING ARENA  •  JAMALPUR, ALIGARH", W / 2, 208);
+
+    // Status pill
+    ctx.fillStyle = "#1f8a4c";
+    drawRoundRect(ctx, W / 2 - 190, 234, 380, 44, 22);
+    ctx.fill();
+    ctx.fillStyle = "#FFFFFF";
+    ctx.font = "700 19px Arial, sans-serif";
+    ctx.fillText("✓  SLOT LOCKED  •  50% ADVANCE PAID", W / 2, 263);
+
+    // Divider
+    ctx.strokeStyle = "rgba(255,179,32,0.35)";
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(75, 308); ctx.lineTo(W - 75, 308); ctx.stroke();
+
+    // Receipt ID & Setup highlight
+    ctx.textAlign = "left";
+    ctx.fillStyle = "#B8AA91";
+    ctx.font = "700 18px Arial, sans-serif";
+    ctx.fillText("RECEIPT ID", 80, 355);
+    ctx.fillStyle = "#FFB320";
+    ctx.font = "900 44px 'Courier New', monospace";
+    ctx.fillText(String(r.receipt_hash), 80, 404);
+
+    ctx.textAlign = "right";
+    ctx.fillStyle = "#B8AA91";
+    ctx.font = "700 18px Arial, sans-serif";
+    ctx.fillText("STATION / SETUP", W - 80, 355);
+    ctx.fillStyle = "#F4ECDD";
+    ctx.font = "900 42px Impact, 'Arial Black', sans-serif";
+    ctx.fillText(String(r.setup).toUpperCase(), W - 80, 404);
+
+    // 5. Details table
+    const rows = [
+      ["Gamer Name", r.name],
+      ["Phone Number", r.phone],
+      ["Booking Date", r.booking_date],
+      ["Start Time", t12(r.booking_time)],
+      ["Duration", durLabelFn(r.duration_mins)],
+      ["Players", `${r.players} Player${r.players > 1 ? "s" : ""}`]
+    ];
+
+    let y = 468;
+    rows.forEach(([k, v]) => {
+      ctx.fillStyle = "rgba(255,179,32,0.06)";
+      ctx.fillRect(75, y - 34, W - 150, 52);
+      ctx.textAlign = "left";
+      ctx.fillStyle = "#B8AA91";
+      ctx.font = "600 22px Arial, sans-serif";
+      ctx.fillText(k, 96, y);
+      ctx.textAlign = "right";
+      ctx.fillStyle = "#F4ECDD";
+      ctx.font = "700 24px Arial, sans-serif";
+      ctx.fillText(String(v), W - 96, y);
+      y += 66;
+    });
+
+    // 6. Payment summary box
+    const boxY = y + 16;
+    ctx.fillStyle = "rgba(255,179,32,0.11)";
+    ctx.strokeStyle = "#FFB320";
+    ctx.lineWidth = 2;
+    drawRoundRect(ctx, 75, boxY, W - 150, 178, 16);
+    ctx.fill();
+    ctx.stroke();
+
+    const balance = Math.max(0, r.total_amount - r.advance_amount);
+    ctx.textAlign = "left";
+    ctx.fillStyle = "#B8AA91";
+    ctx.font = "600 22px Arial, sans-serif";
+    ctx.fillText("Total Session Fee", 102, boxY + 46);
+    ctx.fillText("50% Advance Paid (Online)", 102, boxY + 96);
+    ctx.fillText("Balance Payable at Lounge", 102, boxY + 146);
+
+    ctx.textAlign = "right";
+    ctx.fillStyle = "#F4ECDD";
+    ctx.font = "700 24px Arial, sans-serif";
+    ctx.fillText(inr(r.total_amount), W - 102, boxY + 46);
+    ctx.fillStyle = "#FFB320";
+    ctx.font = "900 32px Arial, sans-serif";
+    ctx.fillText(inr(r.advance_amount), W - 102, boxY + 98);
+    ctx.fillStyle = "#F4ECDD";
+    ctx.font = "700 24px Arial, sans-serif";
+    ctx.fillText(inr(balance), W - 102, boxY + 146);
+
+    // 7. Footer info
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#B8AA91";
+    ctx.font = "600 18px Arial, sans-serif";
+    ctx.fillText("Show this receipt at the Console Club counter upon arrival.", W / 2, H - 104);
+    ctx.fillStyle = "#FFB320";
+    ctx.font = "700 18px Arial, sans-serif";
+    ctx.fillText(`Imperial Plaza, Hamdard Nagar, Jamalpur, Aligarh  •  ${CONFIG.phoneShow}`, W / 2, H - 68);
+
+    // Trigger download (Blob with DataURL fallback)
+    const cleanId = String(r.receipt_hash || "PASS").replace(/[^A-Za-z0-9-]/g, "");
+    const fileName = `ConsoleClub_Receipt_${cleanId}.png`;
+    if (c.toBlob) {
+      c.toBlob(blob => {
+        if (!blob) return;
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.download = fileName;
+        link.href = url;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 4000);
+        toast("Receipt downloaded ✓");
+      }, "image/png");
+    } else {
+      const link = document.createElement("a");
+      link.download = fileName;
+      link.href = c.toDataURL("image/png");
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      toast("Receipt downloaded ✓");
+    }
+  } catch (e) {
+    console.error("Receipt PNG error:", e);
+    toast("Could not download receipt. Please take a screenshot.");
+  }
+};
+
+/* Reveal helper */
 const revealAll = () => $$(".rv:not(.in)").forEach(e => e.classList.add("in"));
 
 /* Pointer card tilt/spotlight */
@@ -159,7 +342,7 @@ if (!RM) {
   }, true);
 }
 
-/* Scroll reveal with a safe fallback */
+/* Scroll reveal with safe fallback */
 if ("IntersectionObserver" in window) {
   const io = new IntersectionObserver(entries => entries.forEach(x => {
     if (x.isIntersecting) { x.target.classList.add("in"); io.unobserve(x.target); }
@@ -194,14 +377,14 @@ const renderGear = () => $$("[data-gear]").forEach(el => {
 /* --- HOME --- */
 const home = () => {
   const M = ["PS5", "PS4", "VR GAMING", "STEERING WHEEL", "GTA VI", "HIGH END SETUPS", "COMFY SEATING", "CLEAN & HYGIENIC", "BEST GAMING VIBE", "DRINKS AT MRP", "CHIPS & WAFERS AT MRP"]
-    .map(x => `<span>${esc(x)} ✦</span>`).join("");
+    .map(x => `<span>${esc(x)} ⚡</span>`).join("");
   const mq = $("#mq"); if (mq) mq.innerHTML = M + M;
   renderGear();
   $$("[data-dir]").forEach(a => a.href = CONFIG.maps);
   $$("[data-call]").forEach(a => a.href = "tel:+" + CONFIG.wa);
 };
 
-/* --- RATES (full poster matrix, complete prices, no 50% split here) --- */
+/* --- RATES --- */
 const rates = () => {
   const A = $("#app"); if (!A) return;
   const q = qs.get("s");
@@ -248,7 +431,7 @@ const rates = () => {
   draw();
 };
 
-/* --- BOOKING (PlayBox-style 8-step flow, Console Club theme) --- */
+/* --- BOOKING (PlayBox-style 8-step flow) --- */
 const book = () => {
   const A = $("#app"); if (!A) return;
 
@@ -256,7 +439,6 @@ const book = () => {
   const today = now0.ymd;
   const tomorrow = addDays(today, 1);
 
-  /* Day: 10:00–23:30 · Night: 00:00–06:30 (30-minute grid) */
   const buildSlots = (ymd) => {
     const nowMins = istNow().mins;
     const isToday = ymd === today;
@@ -280,7 +462,7 @@ const book = () => {
     const saved = JSON.parse(localStorage.getItem("ccme") || "{}");
     B.name = cleanName(saved.n);
     B.phone = normPhone(saved.p);
-  } catch (e) { /* storage unavailable: ignore */ }
+  } catch (e) {}
 
   let step = 1;
   let lockedSlots = [];
@@ -340,7 +522,7 @@ const book = () => {
               <h4 style="margin-top:8px">2 GAMERS</h4><small>Co-op / Head-to-head (PS4 & PS5)</small>
             </button>
           </div>
-          <div class="pb-hint">✦ Need 3+ players? Additional players can be added right at the lounge counter.</div>
+          <div class="pb-hint">⚡ Need 3+ players? Additional players can be added right at the lounge counter.</div>
           <div class="pb-foot"><a class="btn gh sm" href="rates.html">View All Rates</a>${footNext}</div>`;
       }
       else if (step === 2) {
@@ -481,8 +663,11 @@ const book = () => {
       else if (step === 8 && receiptData) {
         html += header(8) + `
           <span class="tag" style="display:block;margin:0 auto 16px;background:#1f8a4c">SLOT LOCKED · RECEIPT GENERATED</span>
-          <div class="tk" id="printable-receipt">
-            <div class="tk-m">
+          <div class="tk" id="printable-receipt" style="position:relative;overflow:hidden">
+            <div aria-hidden="true" style="position:absolute;inset:0;display:grid;place-items:center;pointer-events:none;z-index:1;overflow:hidden">
+              <span style="font:900 3.6rem/1 'Bebas Neue',Impact,sans-serif;letter-spacing:.12em;color:rgba(255,179,32,.09);transform:rotate(-26deg);white-space:nowrap;user-select:none">CONSOLECLUB</span>
+            </div>
+            <div class="tk-m" style="position:relative;z-index:2">
               <div class="tk-t"><span>CONSOLE CLUB · GAME PASS</span><span class="gold" style="font-weight:700">${esc(receiptData.receipt_hash)}</span></div>
               <div class="tk-n gold">${esc(receiptData.setup)}</div>
               <div class="tk-g">
@@ -496,7 +681,7 @@ const book = () => {
                 <div><small>PHONE</small><b>${esc(receiptData.phone)}</b></div>
               </div>
             </div>
-            <div class="tk-s">
+            <div class="tk-s" style="position:relative;z-index:2">
               <div>
                 <small>50% ADVANCE PAID</small>
                 <div class="tot">${inr(receiptData.advance_amount)}</div>
@@ -510,7 +695,7 @@ const book = () => {
             </div>
           </div>
           <div class="cta" style="justify-content:center;margin-top:20px">
-            <button type="button" class="btn" id="btn-print-receipt">Download / Print Receipt</button>
+            <button type="button" class="btn" id="btn-print-receipt">Download Receipt (PNG)</button>
             <button type="button" class="btn gh" id="btn-copy-hash">Copy Receipt ID</button>
           </div>
           <p class="note" style="text-align:center">Your slot is locked and sent to the arena owner for verification. Show <b>${esc(receiptData.receipt_hash)}</b> at the counter when you arrive. <button type="button" class="lnk" id="btn-new-booking">Book Another Slot</button></p>`;
@@ -542,7 +727,7 @@ const book = () => {
     }
     if (step === 8 && receiptData) {
       const p = $("#btn-print-receipt"), c = $("#btn-copy-hash"), n = $("#btn-new-booking");
-      if (p) p.onclick = () => window.print();
+      if (p) p.onclick = () => downloadReceiptPNG(receiptData, durLabel);
       if (c) c.onclick = () => copy(receiptData.receipt_hash, "Receipt ID Copied ✓");
       if (n) n.onclick = () => { B.time = ""; B.screenshotFile = null; receiptData = null; errMsg = ""; step = 1; draw(true); };
     }
@@ -586,7 +771,6 @@ const book = () => {
         step = 8;
         draw(true);
       } else if (res.status === 409) {
-        /* Slot taken meanwhile: send the guest back to the slot grid with a clear message */
         B.time = "";
         step = 5;
         errMsg = data.error || "That slot was just booked. Please choose another time.";
@@ -655,7 +839,7 @@ const arena = () => {
   const cpa = $("#cpa"); if (cpa) cpa.onclick = () => copy(CONFIG.addr, "Address copied ✓");
 };
 
-/* Page dispatcher: one page failing never hides the rest of the site */
+/* Page dispatcher */
 const PAGES = { home, rates, book, arena };
 try {
   if (PAGES[pg]) PAGES[pg]();
@@ -664,7 +848,6 @@ try {
   revealAll();
 }
 
-/* Helpers used by the rates page footer */
 function facts() {
   return `<div class="facts">${FACTS.map(f => `<span>${esc(f)}</span>`).join("")}</div>`;
 }
